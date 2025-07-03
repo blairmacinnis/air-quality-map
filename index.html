@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Air Quality Map - Glace Bay</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0"></script>
+  <style>
+    body { margin: 0; display: flex; flex-direction: column; height: 100vh; }
+    #map { flex: 1; }
+    #chartContainer { height: 300px; padding: 10px; background: #fff; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="chartContainer">
+    <canvas id="pmChart"></canvas>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const channelId = '2688728';
+    const apiKey = 'DQB1MEEA7WF9BCI5';
+
+    const map = L.map('map').setView([46.1949, -59.9569], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let marker;
+
+    const ctx = document.getElementById('pmChart').getContext('2d');
+    const pmChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'PM2.5 (µg/m³)',
+          data: [],
+          borderColor: 'rgba(75, 192, 192, 1)',
+          borderWidth: 2,
+          fill: false
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'hour',
+              tooltipFormat: 'MMM D, h:mm A'
+            },
+            title: {
+              display: true,
+              text: 'Time'
+            }
+          },
+          y: {
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'PM2.5 (µg/m³)'
+            }
+          }
+        }
+      }
+    });
+
+    function updateSensorData() {
+      fetch(`https://api.thingspeak.com/channels/${channelId}/feeds.json?api_key=${apiKey}&results=1`)
+        .then(response => response.ok ? response.json() : Promise.reject(response.statusText))
+        .then(data => {
+          if (data.feeds && data.feeds.length > 0) {
+            const feed = data.feeds[0];
+            const pm25 = parseFloat(feed.field1);
+
+            if (!isNaN(pm25)) {
+              if (marker) {
+                marker.setPopupContent(`<b>Glace Bay Sensor</b><br>PM2.5: ${pm25} µg/m³`);
+              } else {
+                marker = L.marker([46.1949, -59.9569]).addTo(map);
+                marker.bindPopup(`<b>Glace Bay Sensor</b><br>PM2.5: ${pm25} µg/m³`).openPopup();
+              }
+            }
+          }
+        })
+        .catch(error => console.error('ThingSpeak fetch error (latest):', error));
+    }
+
+    function updateChartData() {
+      fetch(`https://api.thingspeak.com/channels/${channelId}/feeds.json?api_key=${apiKey}&results=144`)
+        .then(response => response.ok ? response.json() : Promise.reject(response.statusText))
+        .then(data => {
+          if (data.feeds && data.feeds.length > 0) {
+            const feeds = data.feeds.filter(f => f.field1 !== null);
+            const labels = feeds.map(f => f.created_at);
+            const values = feeds.map(f => parseFloat(f.field1));
+
+            pmChart.data.labels = labels;
+            pmChart.data.datasets[0].data = values;
+            pmChart.update();
+          }
+        })
+        .catch(error => console.error('ThingSpeak fetch error (chart):', error));
+    }
+
+    updateSensorData();
+    updateChartData();
+    setInterval(updateSensorData, 5000);
+    setInterval(updateChartData, 60000);
+  </script>
+</body>
+</html>
